@@ -101,4 +101,4 @@ process and ground rules (no runtime dependencies, `node --check` and
 
 ## License
 
-[MIT](LICENSE).
+[MPL-2.0](LICENSE).
