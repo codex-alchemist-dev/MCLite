@@ -64,6 +64,35 @@ record shape, validator, index projection, relation tracks, and any extra
 integrity checks; MCLite just guarantees the storage underneath all of it
 is atomic and recoverable.
 
+## Storage adapters (OR-Track E3)
+
+Every function that touches storage (`readRecord`, `writeRecord`, `readPair`,
+...) takes its `owner`/`world` parameter as a plain object shaped like
+`{getDynamicProperty, setDynamicProperty, getDynamicPropertyIds}` - a real
+Bedrock `Player`/`world` object already satisfies this natively, and so
+does the plain mock `test/mockOwner.js` uses. That's the storage-adapter
+contract, formalized in `src/adapters/StorageAdapter.js`.
+
+**Only one real adapter ships today**: `createDynamicPropertyAdapter()`, a
+pure pass-through wrapper (zero behavior change) around a native object,
+provided so the contract is explicit and `capabilities()`/`status()` are
+available uniformly.
+
+A second adapter - `SqliteHttpAdapter`, backing records with a small
+first-party HTTP+SQLite service for dedicated servers (OR-Track E3's
+original design) - is **not implemented**. Building it surfaced a real
+problem worth recording rather than working around badly:
+`getDynamicProperty`/`setDynamicProperty` are **synchronous** everywhere in
+this codebase (and in real Bedrock), but an HTTP call is inherently
+asynchronous. There is no correct way to make an HTTP-backed adapter
+satisfy this interface without either a synchronous-XHR-style busy-wait
+(bad practice, stalls the server tick) or rewriting this entire
+synchronous core into an async one (a real, substantial rearchitecture,
+not a side effect of adding one adapter). See `StorageAdapter.js`'s own
+header comment for the full writeup. Backend auto-detection (OR-Track E4,
+`openrock.server.json` + a health check) is deferred until this is
+actually resolved - there's nothing to detect yet.
+
 ## Non-goals
 
 MCLite protects against script-level logic bugs, interrupted writes, and

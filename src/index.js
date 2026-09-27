@@ -17,4 +17,5 @@ module.exports = {
     ...require("./query.js"),
     ...require("./vacuum.js"),
     ...require("./attach.js"),
+    ...require("./adapters/StorageAdapter.js"),
 };

@@ -423,4 +423,21 @@ test("attachPair: an id with no registered owner resolves to a null record, not 
     assert.strictEqual(joined.a.ownerId, null);
 });
 
+// ---- adapters (OR-Track E3) -------------------------------------------------
+
+test("createDynamicPropertyAdapter: a pure pass-through, usable anywhere owner/world is", () => {
+    const owner = createMockOwner();
+    const adapter = mclite.createDynamicPropertyAdapter(owner);
+    assert.deepStrictEqual(adapter.capabilities(), { synchronous: true, persistent: true, networked: false });
+    // The wrapped adapter works as a drop-in "owner" for the real record API
+    // ("widget" is already registered with isValidWidget at the top of this file).
+    const world = createMockOwner("mock:world");
+    mclite.writeRecord(adapter, world, "widget", "ad1", () => ({ name: "via-adapter" }));
+    assert.strictEqual(mclite.readRecord(owner, world, "widget", "ad1").name, "via-adapter", "a write through the adapter must be visible reading the native object directly");
+});
+
+test("createDynamicPropertyAdapter: rejects an object missing the required methods", () => {
+    assert.throws(() => mclite.createDynamicPropertyAdapter({}), /must implement/);
+});
+
 console.log(`\n${passed} passed${process.exitCode ? ", with failures" : ""}`);
