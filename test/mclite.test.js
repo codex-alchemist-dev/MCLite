@@ -64,19 +64,71 @@ test("recordStore: two different kinds never cross-contaminate keys", () => {
     assert.strictEqual(mclite.readRecord(owner, world, "gadget", "same-id").power, 42);
 });
 
-test("recordStore: A/B slots alternate on every write (real atomicity, not overwrite-in-place)", () => {
+test("recordStore: deployments 0/1 alternate on every write (real atomicity, not overwrite-in-place)", () => {
     const owner = createMockOwner();
     const world = createMockOwner("mock:world");
     mclite.writeRecord(owner, world, "widget", "w2", () => ({ name: "v1" }));
-    const slot1 = owner.getDynamicProperty("mclite:widget:w2:active");
+    const deployment1 = owner.getDynamicProperty("mclite:widget:w2:active");
     mclite.writeRecord(owner, world, "widget", "w2", old => ({ name: "v2", _prev: old.name }));
-    const slot2 = owner.getDynamicProperty("mclite:widget:w2:active");
-    assert.notStrictEqual(slot1, slot2, "the active slot should flip between A and B on every write");
-    // The PREVIOUS slot is still sitting there fully intact (instant-rollback
-    // guarantee) - only the pointer changed.
-    const otherSlotKey = `mclite:widget:w2:${slot1}`;
-    const rolledBack = JSON.parse(owner.getDynamicProperty(otherSlotKey));
+    const deployment2 = owner.getDynamicProperty("mclite:widget:w2:active");
+    assert.notStrictEqual(deployment1, deployment2, "the current deployment should flip between 0 and 1 on every write");
+    // The PREVIOUS deployment is still sitting there fully intact (instant-
+    // rollback guarantee) - only the pointer changed.
+    const otherDeploymentKey = `mclite:widget:w2:${deployment1}`;
+    const rolledBack = JSON.parse(owner.getDynamicProperty(otherDeploymentKey));
     assert.strictEqual(rolledBack.name, "v1", "the previous generation must still be readable, untouched");
+});
+
+// ---- recordStore: pin / unpin / rollback / status (OR-Track E1) -----------
+
+test("recordStore: rollback() flips back to the previous generation without a new write", () => {
+    const owner = createMockOwner();
+    const world = createMockOwner("mock:world");
+    mclite.writeRecord(owner, world, "widget", "w6", () => ({ name: "v1" }));
+    mclite.writeRecord(owner, world, "widget", "w6", () => ({ name: "v2" }));
+    assert.strictEqual(mclite.readRecord(owner, world, "widget", "w6").name, "v2");
+    const rolled = mclite.rollback(owner, world, "widget", "w6");
+    assert.strictEqual(rolled.name, "v1");
+    assert.strictEqual(mclite.readRecord(owner, world, "widget", "w6").name, "v1");
+});
+
+test("recordStore: rollback() with only one generation refuses (nothing to roll back to)", () => {
+    const owner = createMockOwner();
+    const world = createMockOwner("mock:world");
+    mclite.writeRecord(owner, world, "widget", "w7", () => ({ name: "only" }));
+    assert.strictEqual(mclite.rollback(owner, world, "widget", "w7"), null);
+});
+
+test("recordStore: pin() blocks the next write into the pinned deployment, unpin() releases it", () => {
+    const owner = createMockOwner();
+    const world = createMockOwner("mock:world");
+    mclite.writeRecord(owner, world, "widget", "w8", () => ({ name: "v1" }));
+    const pinnedDeployment = mclite.pin(owner, "widget", "w8"); // pins the currently-inactive deployment
+    assert.ok(pinnedDeployment === "0" || pinnedDeployment === "1");
+    const blocked = mclite.writeRecord(owner, world, "widget", "w8", () => ({ name: "v2" }));
+    assert.strictEqual(blocked, null, "a write targeting the pinned deployment must be refused");
+    assert.strictEqual(mclite.readRecord(owner, world, "widget", "w8").name, "v1", "the record must be untouched by the refused write");
+    mclite.unpin(owner, "widget", "w8");
+    const allowed = mclite.writeRecord(owner, world, "widget", "w8", () => ({ name: "v2" }));
+    assert.ok(allowed, "a write must succeed again once unpinned");
+    assert.strictEqual(mclite.readRecord(owner, world, "widget", "w8").name, "v2");
+});
+
+test("recordStore: status() reports deployment/pin/mirror state", () => {
+    const owner = createMockOwner();
+    const world = createMockOwner("mock:world");
+    assert.deepStrictEqual(mclite.status(owner, world, "widget", "w9"), {
+        exists: false, currentDeployment: null, pinnedDeployment: null, primaryValid: null, mirrorConsistent: null,
+    });
+    mclite.writeRecord(owner, world, "widget", "w9", () => ({ name: "v1" }));
+    const s = mclite.status(owner, world, "widget", "w9");
+    assert.strictEqual(s.exists, true);
+    assert.ok(s.currentDeployment === "0" || s.currentDeployment === "1");
+    assert.strictEqual(s.pinnedDeployment, null);
+    assert.strictEqual(s.primaryValid, true);
+    assert.strictEqual(s.mirrorConsistent, true);
+    mclite.pin(owner, "widget", "w9");
+    assert.notStrictEqual(mclite.status(owner, world, "widget", "w9").pinnedDeployment, null);
 });
 
 test("recordStore: a mutate() that throws aborts the write, old record untouched", () => {

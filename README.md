@@ -18,16 +18,21 @@ so it doesn't need reinventing again.
 ## What "fully atomic" means here
 
 Every write goes through a **copy-validate-commit** pattern with real
-**A/B deployment slots**, directly modeled on how immutable-OS updates
-(like Fedora Silverblue/OSTree) apply a system update: never patch the
-live copy in place. A write is fully built and validated in memory first;
-committed into whichever slot **isn't** currently live; read back and
-re-verified as a real commit check, not an assumption; and only then does
-one tiny pointer flip make it live. A reader can never observe a
-half-applied write - it's always either the complete old record or the
-complete new one. And because the previous generation is never deleted,
-just superseded, instant rollback is "flip the pointer back," no
-reconstruction needed.
+**deployments**, directly modeled on how Fedora Silverblue's OSTree
+actually applies a system update: never patch the live copy in place. A
+write is fully built and validated in memory first; committed into
+whichever of the two deployments (`0`/`1`) **isn't** currently live; read
+back and re-verified as a real commit check, not an assumption; and only
+then does one tiny pointer (the "current deployment," OSTree's bootloader
+entry) flip to make it live. A reader can never observe a half-applied
+write - it's always either the complete old record or the complete new
+one. And because the previous generation is never deleted, just
+superseded, `rollback()` is "flip the pointer back," no reconstruction
+needed - exactly OSTree's own rollback. `pin()`/`unpin()` mirror OSTree's
+own pin: mark the currently-inactive deployment "don't overwrite on the
+next write" until explicitly released. `status()` mirrors `ostree admin
+status` - a read-only summary of which deployment is current, which (if
+any) is pinned, and whether the mirror agrees with the primary.
 
 On top of that, every record kind can register a **world-scoped mirror
 write** - a second, independent physical copy - so losing a record needs
@@ -38,7 +43,7 @@ Bedrock addon actually needs)
 
 | Concept | Module | What it does |
 |---|---|---|
-| **Tables** | `recordStore.js` | Atomic per-id record storage (`registerRecordKind`, `readRecord`, `writeRecord`) - the A/B-slot engine described above, for any record shape. |
+| **Tables** | `recordStore.js` | Atomic per-id record storage (`registerRecordKind`, `readRecord`, `writeRecord`, `pin`, `unpin`, `rollback`, `status`) - the OSTree-style deployment engine described above, for any record shape. |
 | **Primary keys** | `idRegistry.js` | UUID generation + a world-scoped id→owner registry. |
 | **Indexes** | `perOwnerIndex.js` | A small per-owner list of record summaries, so listing/searching never means loading every full record. |
 | **Relations** | `pairStore.js` | Order-independent pairwise relationships between two ids (e.g. a friendship/rivalry track), one tiny property per pair - no O(n²) blowup. |

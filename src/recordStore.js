@@ -1,19 +1,29 @@
 // The atomic record store - MCLite's "table" engine. Generalizes
-// OpenChara's dataCore.js readCharacter()/writeCharacter() (the A/B
-// deployment-slot pattern: a write is fully built and validated in memory,
-// committed into the currently-INACTIVE slot, read back and re-verified,
-// and only THEN does a single scalar pointer flip make it live) into a
-// store for any record kind, not just "character".
+// OpenChara's dataCore.js readCharacter()/writeCharacter() (the two-
+// deployment pattern: a write is fully built and validated in memory,
+// committed into the currently-INACTIVE deployment, read back and
+// re-verified, and only THEN does a single scalar pointer flip make it
+// live) into a store for any record kind, not just "character".
+//
+// Terminology (OR-Track E1): modeled directly on how Fedora Silverblue's
+// OSTree actually works - an update is never applied by patching the live
+// system in place. A complete new tree is fully assembled and content-
+// verified as its own independent "deployment" first; only then does a
+// tiny pointer (OSTree's bootloader entry, here a single dynamic-property
+// scalar) switch over to it, and the PREVIOUS deployment is kept around
+// fully intact, specifically so rollback is just pointing back at it, no
+// reconstruction needed. What this file used to call "slot A/B" is
+// "deployment 0/1"; the pointer is the "current deployment."
 //
 // Atomicity guarantee: a reader never observes a partially-written record.
-// Either the pointer still says the old (fully valid) slot, or it says the
-// new (fully valid, read-back-confirmed) slot - there is no state in
-// between where a reader could see a half-applied write. This is the
-// "atomic" in "fully atomic database": not a multi-key transaction (there
-// is only ever one record per write here), but a genuine guarantee that a
-// single record's write is all-or-nothing from every reader's point of
-// view, plus a redundant off-record copy (the mirror) for recovery if the
-// primary is ever lost or corrupted outright.
+// Either the pointer still says the old (fully valid) deployment, or it
+// says the new (fully valid, read-back-confirmed) deployment - there is no
+// state in between where a reader could see a half-applied write. This is
+// the "atomic" in "fully atomic database": not a multi-key transaction
+// (there is only ever one record per write here), but a genuine guarantee
+// that a single record's write is all-or-nothing from every reader's point
+// of view, plus a redundant off-record copy (the mirror) for recovery if
+// the primary is ever lost or corrupted outright.
 "use strict";
 
 const { withChecksum, readJsonProperty, writeJsonProperty } = require("./dataCore.js");
@@ -47,15 +57,23 @@ function kindOf(kind) {
 // second, easy-to-forget registration call for the same kind.
 function getKindConfig(kind) { return kinds.get(kind) ?? null; }
 
-function slotKey(prefix, id, slot) { return `mclite:${prefix}:${id}:${slot}`; }
-function activeKey(prefix, id) { return `mclite:${prefix}:${id}:active`; }
+// A record's two physical generations are "0" and "1" - OSTree's own
+// deployment numbering, not an arbitrary choice. `deploymentKey` addresses
+// one of them directly; `currentDeploymentKey` is the pointer scalar;
+// `pinnedDeploymentKey` (E1) optionally marks one generation "don't
+// overwrite next write" (see pin()/unpin() below).
+function deploymentKey(prefix, id, deployment) { return `mclite:${prefix}:${id}:${deployment}`; }
+function currentDeploymentKey(prefix, id) { return `mclite:${prefix}:${id}:active`; }
+function pinnedDeploymentKey(prefix, id) { return `mclite:${prefix}:${id}:pinned`; }
 function mirrorKey(prefix, id) { return `mclite:mirror:${prefix}:${id}`; }
 
+function otherDeployment(deployment) { return deployment === "0" ? "1" : "0"; }
+
 /**
- * Reads the current record for one id. Self-healing: if the primary slot
- * fails validation, transparently recovers from the world-scoped mirror
- * and repairs the primary in place before returning - a caller never has
- * to know recovery happened.
+ * Reads the current record for one id. Self-healing: if the primary
+ * deployment fails validation, transparently recovers from the world-
+ * scoped mirror and repairs the primary in place before returning - a
+ * caller never has to know recovery happened.
  * @param {object} owner - anything with getDynamicProperty/setDynamicProperty
  *   (a Player, in Bedrock terms)
  * @param {object} world - the world-scoped store for the mirror (in
@@ -68,22 +86,22 @@ function mirrorKey(prefix, id) { return `mclite:mirror:${prefix}:${id}`; }
  */
 function readRecord(owner, world, kind, id) {
     const { keyPrefix, validate } = kindOf(kind);
-    const active = owner.getDynamicProperty(activeKey(keyPrefix, id));
-    const slot = active === "A" || active === "B" ? active : null;
-    const everExisted = slot !== null;
+    const current = owner.getDynamicProperty(currentDeploymentKey(keyPrefix, id));
+    const deployment = current === "0" || current === "1" ? current : null;
+    const everExisted = deployment !== null;
 
-    if (slot) {
-        const rec = readJsonProperty(owner, slotKey(keyPrefix, id, slot));
+    if (deployment) {
+        const rec = readJsonProperty(owner, deploymentKey(keyPrefix, id, deployment));
         if (rec && validate(rec)) return rec;
-        console.warn(`[MCLite] "${kind}" ${id} primary slot ${slot} failed validation - attempting mirror recovery.`);
+        console.warn(`[MCLite] "${kind}" ${id} current deployment ${deployment} failed validation - attempting mirror recovery.`);
     }
 
     const mirrored = readJsonProperty(world, mirrorKey(keyPrefix, id));
     if (mirrored && validate(mirrored)) {
         if (everExisted) console.warn(`[MCLite] "${kind}" ${id} recovered from mirror; repairing primary.`);
-        const recoverSlot = slot === "A" ? "B" : "A";
-        writeJsonProperty(owner, slotKey(keyPrefix, id, recoverSlot), mirrored, validate);
-        owner.setDynamicProperty(activeKey(keyPrefix, id), recoverSlot);
+        const recoverDeployment = deployment ? otherDeployment(deployment) : "0";
+        writeJsonProperty(owner, deploymentKey(keyPrefix, id, recoverDeployment), mirrored, validate);
+        owner.setDynamicProperty(currentDeploymentKey(keyPrefix, id), recoverDeployment);
         return mirrored;
     }
 
@@ -92,12 +110,13 @@ function readRecord(owner, world, kind, id) {
 }
 
 /**
- * Full copy-validate-commit + A/B swap + mirror write, in one call.
+ * Full copy-validate-commit + deployment swap + mirror write, in one call.
  * `mutate(oldRecord) -> newRecord` must return a brand-new object (or a
  * falsy value to abort); oldRecord is never mutated in place.
  * @returns {object|null} the committed record, or null if the write was
- *   aborted (mutate threw/returned falsy, the result failed validation, or
- *   the commit-verification read-back didn't match).
+ *   aborted (mutate threw/returned falsy, the result failed validation,
+ *   the target deployment is pinned (E1 - see pin()), or the commit-
+ *   verification read-back didn't match).
  */
 function writeRecord(owner, world, kind, id, mutate) {
     const { keyPrefix, validate } = kindOf(kind);
@@ -117,16 +136,22 @@ function writeRecord(owner, world, kind, id, mutate) {
         return null;
     }
 
-    const activeSlot = owner.getDynamicProperty(activeKey(keyPrefix, id));
-    const targetSlot = activeSlot === "A" ? "B" : "A";
+    const current = owner.getDynamicProperty(currentDeploymentKey(keyPrefix, id));
+    const target = current === "0" || current === "1" ? otherDeployment(current) : "0";
 
-    // (1) Write the fully-finished record into the currently-INACTIVE slot
-    // only - the live slot is untouched, so an interruption here changes
-    // nothing a reader can see.
-    if (!writeJsonProperty(owner, slotKey(keyPrefix, id, targetSlot), newRecord, validate)) return null;
+    const pinned = owner.getDynamicProperty(pinnedDeploymentKey(keyPrefix, id));
+    if (pinned === target) {
+        console.warn(`[MCLite] writeRecord("${kind}", ${id}) aborted: deployment ${target} is pinned - unpin() before writing a new generation.`);
+        return null;
+    }
+
+    // (1) Write the fully-finished record into the currently-INACTIVE
+    // deployment only - the live one is untouched, so an interruption here
+    // changes nothing a reader can see.
+    if (!writeJsonProperty(owner, deploymentKey(keyPrefix, id, target), newRecord, validate)) return null;
 
     // (2) Read it back and confirm - a real commit check, not an assumption.
-    const readBack = readJsonProperty(owner, slotKey(keyPrefix, id, targetSlot));
+    const readBack = readJsonProperty(owner, deploymentKey(keyPrefix, id, target));
     if (!readBack || !validate(readBack) || readBack._checksum !== newRecord._checksum) {
         console.error(`[MCLite] writeRecord("${kind}", ${id}) commit verification failed - live record left untouched.`);
         return null;
@@ -134,7 +159,7 @@ function writeRecord(owner, world, kind, id, mutate) {
 
     // (3) Flip the pointer - the ONE moment a reader's view actually
     // changes. A plain scalar write, never JSON-wrapped.
-    owner.setDynamicProperty(activeKey(keyPrefix, id), targetSlot);
+    owner.setDynamicProperty(currentDeploymentKey(keyPrefix, id), target);
 
     // (4) Mirror, authoritative-first: the primary is already live and
     // correct by the time this runs, so an interruption here at worst
@@ -145,4 +170,73 @@ function writeRecord(owner, world, kind, id, mutate) {
     return newRecord;
 }
 
-module.exports = { registerRecordKind, readRecord, writeRecord, getKindConfig };
+/**
+ * OSTree's `pin` - marks the CURRENTLY INACTIVE deployment "don't overwrite
+ * on the next write." Since a record only ever keeps two generations
+ * (bounded, by design - see the file header), pinning the inactive one
+ * means the next writeRecord() call is refused until unpin() is called;
+ * there is no third slot to fall back to. Returns the pinned deployment id,
+ * or null if there's no record yet (nothing to pin).
+ */
+function pin(owner, kind, id) {
+    const { keyPrefix } = kindOf(kind);
+    const current = owner.getDynamicProperty(currentDeploymentKey(keyPrefix, id));
+    if (current !== "0" && current !== "1") return null;
+    const inactive = otherDeployment(current);
+    owner.setDynamicProperty(pinnedDeploymentKey(keyPrefix, id), inactive);
+    return inactive;
+}
+
+/** Clears whatever pin() set - the next write can target either deployment again. */
+function unpin(owner, kind, id) {
+    const { keyPrefix } = kindOf(kind);
+    owner.setDynamicProperty(pinnedDeploymentKey(keyPrefix, id), undefined);
+}
+
+/**
+ * OSTree's `rollback` - flips the current-deployment pointer back to
+ * whichever generation isn't currently active, WITHOUT writing anything.
+ * Unlike a plain pointer swap, this validates the target deployment first
+ * (an OSTree rollback still refuses to boot a broken deployment) - refuses
+ * and returns null rather than pointing at a generation that won't read
+ * back cleanly.
+ * @returns {object|null} the now-current record, or null if there's
+ *   nothing to roll back to (no record yet, or the other generation is
+ *   missing/corrupt).
+ */
+function rollback(owner, world, kind, id) {
+    const { keyPrefix, validate } = kindOf(kind);
+    const current = owner.getDynamicProperty(currentDeploymentKey(keyPrefix, id));
+    if (current !== "0" && current !== "1") return null;
+    const target = otherDeployment(current);
+    const candidate = readJsonProperty(owner, deploymentKey(keyPrefix, id, target));
+    if (!candidate || !validate(candidate)) {
+        console.warn(`[MCLite] rollback("${kind}", ${id}) refused: deployment ${target} is missing or fails validation.`);
+        return null;
+    }
+    owner.setDynamicProperty(currentDeploymentKey(keyPrefix, id), target);
+    writeJsonProperty(world, mirrorKey(keyPrefix, id), candidate, validate);
+    return candidate;
+}
+
+/**
+ * OSTree's `admin status` - a read-only summary of a record's deployment
+ * state, for diagnostics/tooling rather than normal read/write code paths.
+ */
+function status(owner, world, kind, id) {
+    const { keyPrefix, validate } = kindOf(kind);
+    const current = owner.getDynamicProperty(currentDeploymentKey(keyPrefix, id));
+    const exists = current === "0" || current === "1";
+    const pinned = owner.getDynamicProperty(pinnedDeploymentKey(keyPrefix, id));
+    const primary = exists ? readJsonProperty(owner, deploymentKey(keyPrefix, id, current)) : null;
+    const mirrored = readJsonProperty(world, mirrorKey(keyPrefix, id));
+    return {
+        exists,
+        currentDeployment: exists ? current : null,
+        pinnedDeployment: pinned === "0" || pinned === "1" ? pinned : null,
+        primaryValid: exists ? Boolean(primary && validate(primary)) : null,
+        mirrorConsistent: exists ? Boolean(primary && mirrored && primary._checksum === mirrored._checksum) : null,
+    };
+}
+
+module.exports = { registerRecordKind, readRecord, writeRecord, pin, unpin, rollback, status, getKindConfig };

@@ -34,7 +34,7 @@ const ID = "[^:]+";
 function discoverIds(owner, world, kind) {
     const config = getKindConfig(kind);
     if (!config) throw new Error(`discoverIds("${kind}"): unknown record kind - call recordStore.js's registerRecordKind() first`);
-    const recordRe = new RegExp(`^mclite:${config.keyPrefix}:(${ID}):(A|B|active)$`);
+    const recordRe = new RegExp(`^mclite:${config.keyPrefix}:(${ID}):(0|1|active|pinned)$`);
     const mirrorRe = new RegExp(`^mclite:mirror:${config.keyPrefix}:(${ID})$`);
     const ids = new Set();
     for (const key of owner.getDynamicPropertyIds()) {
@@ -62,18 +62,18 @@ function scanAndRepair(owner, world, kind, { repair = false } = {}) {
     const ids = discoverIds(owner, world, kind);
 
     for (const id of ids) {
-        const active = owner.getDynamicProperty(`mclite:${keyPrefix}:${id}:active`);
-        const slotA = readJsonProperty(owner, `mclite:${keyPrefix}:${id}:A`);
-        const slotB = readJsonProperty(owner, `mclite:${keyPrefix}:${id}:B`);
+        const current = owner.getDynamicProperty(`mclite:${keyPrefix}:${id}:active`);
+        const deployment0 = readJsonProperty(owner, `mclite:${keyPrefix}:${id}:0`);
+        const deployment1 = readJsonProperty(owner, `mclite:${keyPrefix}:${id}:1`);
         const mirror = readJsonProperty(world, `mclite:mirror:${keyPrefix}:${id}`);
-        const primaryOk = (active === "A" && validate(slotA)) || (active === "B" && validate(slotB));
+        const primaryOk = (current === "0" && validate(deployment0)) || (current === "1" && validate(deployment1));
 
-        let rec = primaryOk ? (active === "A" ? slotA : slotB) : (repair ? readRecord(owner, world, kind, id) : (validate(mirror) ? mirror : null));
+        let rec = primaryOk ? (current === "0" ? deployment0 : deployment1) : (repair ? readRecord(owner, world, kind, id) : (validate(mirror) ? mirror : null));
         if (!rec) {
-            note(id, "record unrecoverable: primary slots and mirror are all missing or corrupt");
+            note(id, "record unrecoverable: both deployments and the mirror are all missing or corrupt");
             continue;
         }
-        if (!primaryOk) note(id, active ? `active slot ${active} corrupt - recovered from mirror` : "primary copy missing - recovered from mirror", true);
+        if (!primaryOk) note(id, current ? `current deployment ${current} corrupt - recovered from mirror` : "primary copy missing - recovered from mirror", true);
 
         if (!validate(mirror) || mirror._checksum !== rec._checksum) {
             note(id, mirror ? "mirror out of sync with primary" : "mirror missing", true);
