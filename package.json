@@ -1,0 +1,9 @@
+{
+  "name": "mclite",
+  "version": "0.1.0",
+  "description": "A lightweight, generic Minecraft Bedrock storage system: dynamic-property A/B-slot record storage, mirroring, checksums, generic id/owner registries, per-owner indexes, pairwise relationship stores, counters, block links, and pluggable scan/repair/export/import mechanisms. Extracted and generalized from OpenChara's dataCore.js family - see OR-Phase 4 in the project plan.",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  }
+}
