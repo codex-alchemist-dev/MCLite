@@ -18,4 +18,5 @@ module.exports = {
     ...require("./vacuum.js"),
     ...require("./attach.js"),
     ...require("./adapters/StorageAdapter.js"),
+    ...require("./fulltext.js"),
 };

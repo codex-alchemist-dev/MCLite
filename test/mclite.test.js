@@ -440,4 +440,64 @@ test("createDynamicPropertyAdapter: rejects an object missing the required metho
     assert.throws(() => mclite.createDynamicPropertyAdapter({}), /must implement/);
 });
 
+// ---- fulltext (OR-Track E2b) ------------------------------------------------
+
+mclite.registerFulltextField("widget", "name");
+
+function makeSearchableWidget(owner, world, id, name) {
+    const rec = mclite.writeRecord(owner, world, "widget", id, () => ({ name }));
+    mclite.indexFulltextRecord(owner, "widget", "name", id, rec);
+    return rec;
+}
+
+test("fulltext: queryFulltext finds a record by a single indexed token", () => {
+    const owner = createMockOwner();
+    const world = createMockOwner("mock:world");
+    makeSearchableWidget(owner, world, "f1", "Frost Marksman Rifle");
+    makeSearchableWidget(owner, world, "f2", "Fire Axe");
+    const results = mclite.queryFulltext(owner, world, "widget", "name", "frost");
+    assert.deepStrictEqual(results.map(r => r.name), ["Frost Marksman Rifle"]);
+});
+
+test("fulltext: multiple search tokens are ANDed, not ORed", () => {
+    const owner = createMockOwner();
+    const world = createMockOwner("mock:world");
+    makeSearchableWidget(owner, world, "f3", "Frost Marksman Rifle");
+    makeSearchableWidget(owner, world, "f4", "Frost Axe");
+    const both = mclite.queryFulltext(owner, world, "widget", "name", "frost marksman");
+    assert.deepStrictEqual(both.map(r => r.name), ["Frost Marksman Rifle"]);
+    const neither = mclite.queryFulltext(owner, world, "widget", "name", "frost sword");
+    assert.deepStrictEqual(neither, []);
+});
+
+test("fulltext: reindexing after a content change drops stale token matches", () => {
+    const owner = createMockOwner();
+    const world = createMockOwner("mock:world");
+    makeSearchableWidget(owner, world, "f5", "Old Name");
+    assert.strictEqual(mclite.queryFulltext(owner, world, "widget", "name", "old").length, 1);
+    makeSearchableWidget(owner, world, "f5", "New Name"); // re-index in place
+    assert.strictEqual(mclite.queryFulltext(owner, world, "widget", "name", "old").length, 0);
+    assert.strictEqual(mclite.queryFulltext(owner, world, "widget", "name", "new").length, 1);
+});
+
+test("fulltext: removeFulltextRecord clears an id out of every token it occupied", () => {
+    const owner = createMockOwner();
+    const world = createMockOwner("mock:world");
+    makeSearchableWidget(owner, world, "f6", "Removable Widget");
+    assert.strictEqual(mclite.queryFulltext(owner, world, "widget", "name", "removable").length, 1);
+    mclite.removeFulltextRecord(owner, "widget", "name", "f6");
+    assert.strictEqual(mclite.queryFulltext(owner, world, "widget", "name", "removable").length, 0);
+});
+
+test("fulltext: queryFulltext accepts an additional query.js-style filter on the matched records", () => {
+    const owner = createMockOwner();
+    const world = createMockOwner("mock:world");
+    const recA = mclite.writeRecord(owner, world, "widget", "f7", () => ({ name: "Frost Bow", power: 5 }));
+    mclite.indexFulltextRecord(owner, "widget", "name", "f7", recA);
+    const recB = mclite.writeRecord(owner, world, "widget", "f8", () => ({ name: "Frost Sword", power: 50 }));
+    mclite.indexFulltextRecord(owner, "widget", "name", "f8", recB);
+    const strong = mclite.queryFulltext(owner, world, "widget", "name", "frost", { filter: { field: "power", op: ">=", value: 20 } });
+    assert.deepStrictEqual(strong.map(r => r.name), ["Frost Sword"]);
+});
+
 console.log(`\n${passed} passed${process.exitCode ? ", with failures" : ""}`);

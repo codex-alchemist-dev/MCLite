@@ -54,9 +54,40 @@ Bedrock addon actually needs)
 | **Query & filter** | `query.js` | A `WHERE`-equivalent: a small declarative filter tree (`{field,op,value}`, `all`/`any`/`not`) over the cheap index summaries (`queryIndex`), or a predicate function over full records (`queryRecords`) - an honest full scan, no B-tree underneath it. |
 | **VACUUM** | `vacuum.js` | Re-serializes every indexed record of a kind through a real write (dropping stale fields a validator no longer requires), plus finalizing `counters.js`'s buffered write queue. |
 | **ATTACH** | `attach.js` | Joins a `pairStore.js` relationship with both sides' actual owner-scoped records in one call, resolving each id's owner via `idRegistry.js`. |
+| **Full-text search** | `fulltext.js` | An opt-in inverted-index analog to FTS5 (`registerFulltextField`, `indexFulltextRecord`, `queryFulltext`) - AND-of-tokens matching only, no ranking/BM25/phrase queries. See the section below for why it's an *analog*, not FTS5 itself. |
 | **Checksums & raw I/O** | `dataCore.js` | The primitives everything above is built on. |
 
-**Deliberate non-goals** (credited to SQLite by name, not reimplemented): a real B-tree page format, a write-ahead log file (the deployment mechanism above serves WAL's actual durability purpose differently), and virtual tables. A B-tree/WAL file format doesn't map onto a flat key-value dynamic-property store at all; virtual tables would mean building a query planner MCLite has no use for at this scale.
+**Deliberate non-goals** (credited to SQLite by name, not reimplemented): a real B-tree page format and a write-ahead log file (the deployment mechanism above serves WAL's actual durability purpose differently) - neither maps onto a flat key-value dynamic-property store at all. Virtual tables in general are also out of scope (they'd mean building a query planner MCLite has no use for at this scale); `fulltext.js` is the one deliberate exception, attempted despite the mismatch because it was explicitly requested (see below).
+
+### Full-text search: an honest analog, not FTS5 (OR-Track E2b)
+
+A real KV store has no inverted-index storage engine underneath it the way
+SQLite's FTS5 virtual table does - `fulltext.js` is a pragmatic
+scan-reduction structure layered on top, not a port of FTS5:
+
+- `registerFulltextField(kind, field)` opts one field of a record kind in.
+- `indexFulltextRecord(owner, kind, field, id, record)` tokenizes the
+  field (lowercase, split on non-letter/digit runs, no stemming or
+  stopword removal) and updates a per-owner inverted index (token → matching
+  ids), correctly dropping stale token entries via a small membership map
+  if the field's content changed since the last index. Not automatic -
+  mirrors `perOwnerIndex.js`'s own `upsertIndexEntry()` convention: call it
+  explicitly right after a successful `writeRecord()`.
+- `queryFulltext(owner, world, kind, field, searchTerm, {filter})` tokenizes
+  the search the same way and returns records containing **every** search
+  token (a plain AND, not OR) - optionally narrowed further by a
+  `query.js`-style declarative filter over the matched records' other
+  fields.
+- **What this deliberately does not do**: no relevance ranking/BM25, no
+  phrase queries, no fuzzy/partial-word matching, no stemming. It answers
+  "which records mention all of these words," nothing more.
+- **Scaling honesty**: the inverted index and membership map are one
+  property each per (owner, kind, field) - fine for a typical roster
+  (tens of records, short strings), but a very large roster with a big
+  vocabulary could approach the per-property size ceiling. Sharding by
+  token prefix is the documented future extension if that's ever actually
+  threatened, same discipline as `counters.js`'s own sharding note - not
+  needed today.
 
 Everything is **pluggable per record kind** - MCLite has no idea what a
 "character," "pet," or "shop" is. A consuming project registers its own
