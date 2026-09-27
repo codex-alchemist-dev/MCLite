@@ -6,6 +6,10 @@ external service, no dependencies. Dependency-free Node, consumed by
 sibling projects via plain `require()` (matching MinUI's own convention),
 not published to npm.
 
+A [Codex Alchemist](https://github.com/codex-alchemist-dev) project, under
+Fireball Everything. See [AUTHORS.md](AUTHORS.md) and
+[CREDITS.md](CREDITS.md).
+
 ## Why
 
 Bedrock's `setDynamicProperty`/`getDynamicProperty` API gives you raw
