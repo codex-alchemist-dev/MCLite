@@ -1,6 +1,6 @@
-# Contributing to MClite
+# Contributing to MCLite
 
-Thanks for taking a look. MClite is a small, focused library - the
+Thanks for taking a look. MCLite is a small, focused library - the
 storage/atomicity core - and it's meant to stay that way, so the biggest
 favor a contribution can do is keep record-kind-specific logic out of it.
 Anything that needs to know what a "character" or a "pet" *is* belongs in
@@ -13,9 +13,9 @@ the consuming project, not here.
 - **Stay generic.** If a change only makes sense for one specific game
   concept, it's a sign that logic belongs in the consuming project's own
   registration (a validator, an index projection, an integrity check),
-  not hardcoded into MClite itself.
+  not hardcoded into MCLite itself.
 - **Test against the mock, not real Bedrock.** `test/mockOwner.js` is a
-  minimal stand-in for the three dynamic-property methods MClite actually
+  minimal stand-in for the three dynamic-property methods MCLite actually
   calls - every module should be fully testable against it, with zero
   dependency on `@minecraft/server`. If your change needs more than
   `getDynamicProperty`/`setDynamicProperty`/`getDynamicPropertyIds` to

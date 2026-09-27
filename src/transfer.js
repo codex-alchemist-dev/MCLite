@@ -1,4 +1,4 @@
-// Generic export/import - MClite's backup/restore mechanism. A record
+// Generic export/import - MCLite's backup/restore mechanism. A record
 // serializes to a single self-checksummed text string that survives even
 // total loss of the world save; import verifies that checksum before
 // writing anything, so a truncated or hand-edited string is rejected
@@ -47,7 +47,7 @@ function parseExport(text) {
     const trimmed = (text ?? "").trim();
     const first = trimmed.indexOf("|");
     const second = trimmed.indexOf("|", first + 1);
-    if (first < 0 || second < 0 || trimmed.slice(0, first) !== PREFIX) throw new Error("Not an MClite backup string.");
+    if (first < 0 || second < 0 || trimmed.slice(0, first) !== PREFIX) throw new Error("Not an MCLite backup string.");
     const sum = trimmed.slice(first + 1, second);
     const payload = trimmed.slice(second + 1);
     if (computeChecksum({ payload }) !== sum) throw new Error("Backup checksum mismatch - the text was cut off or edited.");

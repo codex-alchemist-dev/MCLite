@@ -1,8 +1,8 @@
-// Generic integrity scan/repair - MClite's `PRAGMA integrity_check`
+// Generic integrity scan/repair - MCLite's `PRAGMA integrity_check`
 // equivalent. The generic structural checks (does the record validate,
 // does the mirror agree with the primary) always run; a record kind
 // registers additional checks specific to its own domain (a "character"
-// kind might check bond partners still exist; MClite itself has no idea
+// kind might check bond partners still exist; MCLite itself has no idea
 // what a "bond" is, so it never hardcodes that).
 "use strict";
 
@@ -81,11 +81,11 @@ function scanAndRepair(owner, world, kind, { repair = false } = {}) {
         }
 
         // Kind-specific checks, run in registration order, entirely opaque
-        // to MClite itself - a broken check never crashes the whole scan.
+        // to MCLite itself - a broken check never crashes the whole scan.
         for (const checkFn of kindChecks.get(kind) ?? []) {
             let result;
             try { result = checkFn(rec, { owner, world }); }
-            catch (e) { console.warn(`[MClite] integrity check for "${kind}" threw: ${e}`); continue; }
+            catch (e) { console.warn(`[MCLite] integrity check for "${kind}" threw: ${e}`); continue; }
             if (result && !result.ok) {
                 note(id, result.issue ?? "failed a registered integrity check", Boolean(result.repair));
                 if (repair && result.repair) {

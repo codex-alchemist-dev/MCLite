@@ -1,4 +1,4 @@
-// The atomic record store - MClite's "table" engine. Generalizes
+// The atomic record store - MCLite's "table" engine. Generalizes
 // OpenChara's dataCore.js readCharacter()/writeCharacter() (the A/B
 // deployment-slot pattern: a write is fully built and validated in memory,
 // committed into the currently-INACTIVE slot, read back and re-verified,
@@ -75,19 +75,19 @@ function readRecord(owner, world, kind, id) {
     if (slot) {
         const rec = readJsonProperty(owner, slotKey(keyPrefix, id, slot));
         if (rec && validate(rec)) return rec;
-        console.warn(`[MClite] "${kind}" ${id} primary slot ${slot} failed validation - attempting mirror recovery.`);
+        console.warn(`[MCLite] "${kind}" ${id} primary slot ${slot} failed validation - attempting mirror recovery.`);
     }
 
     const mirrored = readJsonProperty(world, mirrorKey(keyPrefix, id));
     if (mirrored && validate(mirrored)) {
-        if (everExisted) console.warn(`[MClite] "${kind}" ${id} recovered from mirror; repairing primary.`);
+        if (everExisted) console.warn(`[MCLite] "${kind}" ${id} recovered from mirror; repairing primary.`);
         const recoverSlot = slot === "A" ? "B" : "A";
         writeJsonProperty(owner, slotKey(keyPrefix, id, recoverSlot), mirrored, validate);
         owner.setDynamicProperty(activeKey(keyPrefix, id), recoverSlot);
         return mirrored;
     }
 
-    if (everExisted) console.error(`[MClite] "${kind}" ${id} unrecoverable: primary and mirror both missing/corrupt.`);
+    if (everExisted) console.error(`[MCLite] "${kind}" ${id} unrecoverable: primary and mirror both missing/corrupt.`);
     return null;
 }
 
@@ -106,14 +106,14 @@ function writeRecord(owner, world, kind, id, mutate) {
     try {
         newRecord = mutate(oldRecord);
     } catch (e) {
-        console.warn(`[MClite] writeRecord("${kind}", ${id}) mutate() threw, aborting write: ${e}`);
+        console.warn(`[MCLite] writeRecord("${kind}", ${id}) mutate() threw, aborting write: ${e}`);
         return null;
     }
     if (!newRecord) return null;
 
     newRecord = withChecksum(newRecord);
     if (!validate(newRecord)) {
-        console.warn(`[MClite] writeRecord("${kind}", ${id}) produced an invalid record, aborting write.`);
+        console.warn(`[MCLite] writeRecord("${kind}", ${id}) produced an invalid record, aborting write.`);
         return null;
     }
 
@@ -128,7 +128,7 @@ function writeRecord(owner, world, kind, id, mutate) {
     // (2) Read it back and confirm - a real commit check, not an assumption.
     const readBack = readJsonProperty(owner, slotKey(keyPrefix, id, targetSlot));
     if (!readBack || !validate(readBack) || readBack._checksum !== newRecord._checksum) {
-        console.error(`[MClite] writeRecord("${kind}", ${id}) commit verification failed - live record left untouched.`);
+        console.error(`[MCLite] writeRecord("${kind}", ${id}) commit verification failed - live record left untouched.`);
         return null;
     }
 

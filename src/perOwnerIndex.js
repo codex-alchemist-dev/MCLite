@@ -1,4 +1,4 @@
-// Generic per-owner index - MClite's answer to "list every record of kind
+// Generic per-owner index - MCLite's answer to "list every record of kind
 // X this owner has" without loading every record's full body. Generalizes
 // OpenChara's characterIndex.js, whose entry shape ({id, nickname,
 // species}) was hardcoded; here the caller supplies a `project(record)`

@@ -1,4 +1,4 @@
-// Generic open-ended counters - MClite's "aggregates" table. Two levels
+// Generic open-ended counters - MCLite's "aggregates" table. Two levels
 // deep (category, then subject), never enumerated ahead of time - a new
 // category or subject is just a new key, no schema change. Generalized
 // from OpenChara's counters.js, which was already fully generic (only the
@@ -85,7 +85,7 @@ function flushQueuedStats(findOwner) {
         try {
             incrementStats(owner, kind, id, deltas);
             flushed.push({ owner, kind, id, deltas });
-        } catch (e) { console.warn(`[MClite] Stat flush failed for ${kind}/${id}: ${e}`); }
+        } catch (e) { console.warn(`[MCLite] Stat flush failed for ${kind}/${id}: ${e}`); }
     }
     return flushed;
 }

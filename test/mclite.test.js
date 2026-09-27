@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Plain-Node test runner (no dependencies) for MClite's public API.
+// Plain-Node test runner (no dependencies) for MCLite's public API.
 // Run: node test/mclite.test.js
 "use strict";
 
@@ -210,7 +210,7 @@ test("transfer: export -> import round-trip, stripOnExport and resetOnImport bot
     mclite.writeRecord(owner, world, "widget", "t1", () => ({ name: "backup-me", secret: "shh" }));
 
     const blob = mclite.exportRecord(owner, world, "widget", "t1");
-    assert.ok(blob.startsWith("MCL1|"), "export blob should carry the MClite prefix");
+    assert.ok(blob.startsWith("MCL1|"), "export blob should carry the MCLite prefix");
 
     const otherOwner = createMockOwner();
     const otherWorld = createMockOwner("mock:world-2");

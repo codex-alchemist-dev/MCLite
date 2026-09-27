@@ -1,4 +1,4 @@
-// Generic pairwise relationship store - MClite's "relations" table.
+// Generic pairwise relationship store - MCLite's "relations" table.
 // Generalizes OpenChara's bonds.js: one tiny world-scoped property per
 // pair, canonical (sorted) key ordering so A-to-B and B-to-A are the same
 // row, sidestepping the O(n^2) single-array sharding problem entirely

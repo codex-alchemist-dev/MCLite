@@ -1,4 +1,4 @@
-# MClite
+# MCLite
 
 A free, open-source, fully atomic database designed for Minecraft Bedrock,
 built entirely on Bedrock's own dynamic-property storage - no server, no
@@ -12,7 +12,7 @@ Bedrock's `setDynamicProperty`/`getDynamicProperty` API gives you raw
 key-value storage and nothing else - no atomicity guarantee beyond a
 single key, no schema, no indexes, no backup mechanism. Every non-trivial
 Bedrock addon ends up re-inventing some version of "how do I store real
-data safely" from scratch. MClite is that piece, built once, generically,
+data safely" from scratch. MCLite is that piece, built once, generically,
 so it doesn't need reinventing again.
 
 ## What "fully atomic" means here
@@ -48,15 +48,15 @@ Bedrock addon actually needs)
 | **Backup & restore** | `transfer.js` | A record serializes to one self-checksummed text string that survives total loss of the world save; import verifies before writing anything. |
 | **Checksums & raw I/O** | `dataCore.js` | The primitives everything above is built on. |
 
-Everything is **pluggable per record kind** - MClite has no idea what a
+Everything is **pluggable per record kind** - MCLite has no idea what a
 "character," "pet," or "shop" is. A consuming project registers its own
 record shape, validator, index projection, relation tracks, and any extra
-integrity checks; MClite just guarantees the storage underneath all of it
+integrity checks; MCLite just guarantees the storage underneath all of it
 is atomic and recoverable.
 
 ## Non-goals
 
-MClite protects against script-level logic bugs, interrupted writes, and
+MCLite protects against script-level logic bugs, interrupted writes, and
 accidental corruption. It does **not** protect against a player deleting
 their whole world file, or the underlying LevelDB database itself becoming
 corrupted at the engine level - those sit beneath anything a Script API
@@ -89,7 +89,7 @@ npm test   # runs test/mclite.test.js against a mock Player/world object
 Extracted and generalized from
 [OpenChara](https://github.com/Cookiesmuch/OpenChara)'s `dataCore.js`
 family - see "OpenRock Mod Packager — Phased Implementation Plan",
-OR-Phase 4, for the extraction design. OpenChara is MClite's first real
+OR-Phase 4, for the extraction design. OpenChara is MCLite's first real
 consumer, wired in as a library through
 [OpenRock](https://github.com/Cookiesmuch/OpenRock).
 

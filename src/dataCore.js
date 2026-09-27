@@ -5,7 +5,7 @@
 // Phased Implementation Plan", OR-Phase 4, in the project plan document.
 "use strict";
 
-const TAG = "MClite";
+const TAG = "MCLite";
 
 // ---- Generic checksum --------------------------------------------------
 // Cheap, non-cryptographic. Computed over the JSON of the record with
