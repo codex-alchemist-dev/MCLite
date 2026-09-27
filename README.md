@@ -87,11 +87,11 @@ npm test   # runs test/mclite.test.js against a mock Player/world object
 ## Origin
 
 Extracted and generalized from
-[OpenChara](https://github.com/Cookiesmuch/OpenChara)'s `dataCore.js`
+[OpenChara](https://github.com/codex-alchemist-dev/OpenChara)'s `dataCore.js`
 family - see "OpenRock Mod Packager — Phased Implementation Plan",
 OR-Phase 4, for the extraction design. OpenChara is MCLite's first real
 consumer, wired in as a library through
-[OpenRock](https://github.com/Cookiesmuch/OpenRock).
+[OpenRock](https://github.com/codex-alchemist-dev/OpenRock).
 
 ## Contributing
 
