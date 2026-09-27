@@ -252,6 +252,20 @@ test("maintenance: a registered kind-specific check runs and can repair", () => 
     assert.strictEqual(mclite.readRecord(owner, world, "widget", "m2").name, "renamed");
 });
 
+test("maintenance: scanAndRepair reports a structured pass/fail tally per named check", () => {
+    const owner = createMockOwner();
+    const world = createMockOwner("mock:world");
+    mclite.writeRecord(owner, world, "widget", "m3", () => ({ name: "healthy" }));
+    mclite.writeRecord(owner, world, "widget", "m4", () => ({ name: "" }));
+    mclite.registerIntegrityCheck("widget", "nonEmptyName", rec => rec.name === "" ? { ok: false, issue: "empty name" } : { ok: true });
+
+    const result = mclite.scanAndRepair(owner, world, "widget", { repair: false });
+    assert.ok(result.checks.primaryValid.pass >= 2);
+    assert.ok(result.checks.mirrorConsistent.pass >= 2);
+    assert.strictEqual(result.checks.nonEmptyName.pass, 1);
+    assert.strictEqual(result.checks.nonEmptyName.fail, 1);
+});
+
 // ---- transfer (backup/restore) ------------------------------------------------
 
 mclite.registerTransferRules("widget", { stripOnExport: ["secret"], resetOnImport: { imported: true } });
@@ -297,6 +311,116 @@ test("idRegistry: generateId produces distinct UUIDs, owner registry resolves", 
     assert.strictEqual(mclite.resolveOwner(world, "widget", idA), "owner-42");
     mclite.clearOwner(world, "widget", idA);
     assert.strictEqual(mclite.resolveOwner(world, "widget", idA), null);
+});
+
+// ---- query (OR-Track E2) --------------------------------------------------
+
+function makeIndexedWidget(owner, world, id, fields) {
+    const rec = mclite.writeRecord(owner, world, "widget", id, () => ({ name: id, ...fields }));
+    mclite.upsertIndexEntry(owner, "widget", id, rec);
+    return rec;
+}
+
+test("query: queryIndex filters the cheap per-owner summaries with a declarative filter", () => {
+    const owner = createMockOwner();
+    const world = createMockOwner("mock:world");
+    makeIndexedWidget(owner, world, "q1", { power: 5 });
+    makeIndexedWidget(owner, world, "q2", { power: 15 });
+    // Only { name } is in "widget"'s registered index projection - filter on that.
+    const matches = mclite.queryIndex(owner, "widget", { field: "name", op: "=", value: "q2" });
+    assert.deepStrictEqual(matches.map(e => e.id), ["q2"]);
+});
+
+test("query: queryIndex supports all/any/not combinators", () => {
+    const owner = createMockOwner();
+    const world = createMockOwner("mock:world");
+    makeIndexedWidget(owner, world, "q3", {});
+    makeIndexedWidget(owner, world, "q4", {});
+    const anyMatch = mclite.queryIndex(owner, "widget", { any: [{ field: "name", op: "=", value: "q3" }, { field: "name", op: "=", value: "q4" }] });
+    assert.strictEqual(anyMatch.length, 2);
+    const notMatch = mclite.queryIndex(owner, "widget", { not: { field: "name", op: "=", value: "q3" } });
+    assert.strictEqual(notMatch.some(e => e.id === "q3"), false);
+});
+
+test("query: queryRecords loads full records and filters on any field, indexed or not", () => {
+    const owner = createMockOwner();
+    const world = createMockOwner("mock:world");
+    makeIndexedWidget(owner, world, "q5", { power: 5 });
+    makeIndexedWidget(owner, world, "q6", { power: 99 });
+    const highPower = mclite.queryRecords(owner, world, "widget", rec => rec.power > 50);
+    assert.deepStrictEqual(highPower.map(r => r.name), ["q6"]);
+});
+
+test("query: queryRecordsWhere applies the declarative filter to full records", () => {
+    const owner = createMockOwner();
+    const world = createMockOwner("mock:world");
+    makeIndexedWidget(owner, world, "q7", { power: 5 });
+    makeIndexedWidget(owner, world, "q8", { power: 99 });
+    const highPower = mclite.queryRecordsWhere(owner, world, "widget", { field: "power", op: ">=", value: 50 });
+    assert.deepStrictEqual(highPower.map(r => r.name), ["q8"]);
+});
+
+// ---- vacuum (OR-Track E2) ---------------------------------------------------
+
+test("vacuumRecords: strips dropFields from every indexed record via a real re-commit", () => {
+    const owner = createMockOwner();
+    const world = createMockOwner("mock:world");
+    const rec = mclite.writeRecord(owner, world, "widget", "v1", () => ({ name: "v1", legacyField: "stale" }));
+    mclite.upsertIndexEntry(owner, "widget", "v1", rec);
+    const { vacuumed, skipped } = mclite.vacuumRecords(owner, world, "widget", { dropFields: ["legacyField"] });
+    assert.strictEqual(vacuumed, 1);
+    assert.deepStrictEqual(skipped, []);
+    const after = mclite.readRecord(owner, world, "widget", "v1");
+    assert.strictEqual("legacyField" in after, false);
+    assert.strictEqual(after.name, "v1");
+});
+
+test("vacuumRecords: a record that becomes invalid after dropping a field is skipped, left untouched", () => {
+    const owner = createMockOwner();
+    const world = createMockOwner("mock:world");
+    const rec = mclite.writeRecord(owner, world, "widget", "v2", () => ({ name: "v2" }));
+    mclite.upsertIndexEntry(owner, "widget", "v2", rec);
+    // "name" is required by isValidWidget - dropping it must abort the write, not corrupt the record.
+    const { vacuumed, skipped } = mclite.vacuumRecords(owner, world, "widget", { dropFields: ["name"] });
+    assert.strictEqual(vacuumed, 0);
+    assert.deepStrictEqual(skipped, ["v2"]);
+    assert.strictEqual(mclite.readRecord(owner, world, "widget", "v2").name, "v2", "the record must be untouched, not half-vacuumed");
+});
+
+test("vacuumCounters: flushes the buffered queue exactly like counters.js's own flushQueuedStats", () => {
+    const owner = createMockOwner();
+    mclite.queueStat("widget", "owner-vac", "v3", "hits", "sword", 3);
+    const flushed = mclite.vacuumCounters(id => (id === "owner-vac" ? owner : null));
+    assert.strictEqual(flushed.length, 1);
+    assert.strictEqual(mclite.readCounter(owner, "widget", "v3", "hits", "sword"), 3);
+});
+
+// ---- attach (OR-Track E2) ---------------------------------------------------
+
+test("attachPair: joins a pairStore relationship with both sides' actual owner-scoped records", () => {
+    const world = createMockOwner("mock:world");
+    const ownerA = createMockOwner("mock:ownerA");
+    const ownerB = createMockOwner("mock:ownerB");
+    const recA = mclite.writeRecord(ownerA, world, "widget", "atA", () => ({ name: "Alpha" }));
+    const recB = mclite.writeRecord(ownerB, world, "widget", "atB", () => ({ name: "Beta" }));
+    mclite.registerOwner(world, "widget", "atA", "ownerA-id");
+    mclite.registerOwner(world, "widget", "atB", "ownerB-id");
+    mclite.writePair(world, "friendship", "atA", "atB", old => ({ ...old, closeness: { level: 2, xp: 10 } }));
+
+    const findOwner = id => ({ "ownerA-id": ownerA, "ownerB-id": ownerB }[id] ?? null);
+    const joined = mclite.attachPair(world, "friendship", "widget", "atA", "atB", findOwner);
+    assert.strictEqual(joined.pair.closeness.level, 2);
+    assert.strictEqual(joined.a.record.name, "Alpha");
+    assert.strictEqual(joined.b.record.name, "Beta");
+    assert.strictEqual(joined.a.ownerId, "ownerA-id");
+});
+
+test("attachPair: an id with no registered owner resolves to a null record, not a throw", () => {
+    const world = createMockOwner("mock:world");
+    const joined = mclite.attachPair(world, "friendship", "widget", "unregisteredA", "unregisteredB", () => null);
+    assert.strictEqual(joined.a.record, null);
+    assert.strictEqual(joined.b.record, null);
+    assert.strictEqual(joined.a.ownerId, null);
 });
 
 console.log(`\n${passed} passed${process.exitCode ? ", with failures" : ""}`);

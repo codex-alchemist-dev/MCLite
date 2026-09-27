@@ -49,9 +49,14 @@ Bedrock addon actually needs)
 | **Relations** | `pairStore.js` | Order-independent pairwise relationships between two ids (e.g. a friendship/rivalry track), one tiny property per pair - no O(n²) blowup. |
 | **Aggregates** | `counters.js` | Open-ended two-level counters (category → subject → number), plus a buffered write queue for hot gameplay events. |
 | **Spatial references** | `blockLinks.js` | World-position → record-id links. |
-| **Integrity check & repair** | `maintenance.js` | A `PRAGMA integrity_check`-equivalent scan (structural validity + mirror sync, plus any checks a record kind registers) with an optional repair pass. |
+| **Integrity check & repair** | `maintenance.js` | A `PRAGMA integrity_check`-equivalent scan (structural validity + mirror sync, plus any checks a record kind registers), with a structured pass/fail tally per named check, and an optional repair pass. |
 | **Backup & restore** | `transfer.js` | A record serializes to one self-checksummed text string that survives total loss of the world save; import verifies before writing anything. |
+| **Query & filter** | `query.js` | A `WHERE`-equivalent: a small declarative filter tree (`{field,op,value}`, `all`/`any`/`not`) over the cheap index summaries (`queryIndex`), or a predicate function over full records (`queryRecords`) - an honest full scan, no B-tree underneath it. |
+| **VACUUM** | `vacuum.js` | Re-serializes every indexed record of a kind through a real write (dropping stale fields a validator no longer requires), plus finalizing `counters.js`'s buffered write queue. |
+| **ATTACH** | `attach.js` | Joins a `pairStore.js` relationship with both sides' actual owner-scoped records in one call, resolving each id's owner via `idRegistry.js`. |
 | **Checksums & raw I/O** | `dataCore.js` | The primitives everything above is built on. |
+
+**Deliberate non-goals** (credited to SQLite by name, not reimplemented): a real B-tree page format, a write-ahead log file (the deployment mechanism above serves WAL's actual durability purpose differently), and virtual tables. A B-tree/WAL file format doesn't map onto a flat key-value dynamic-property store at all; virtual tables would mean building a query planner MCLite has no use for at this scale.
 
 Everything is **pluggable per record kind** - MCLite has no idea what a
 "character," "pet," or "shop" is. A consuming project registers its own

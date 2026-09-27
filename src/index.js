@@ -14,4 +14,7 @@ module.exports = {
     ...require("./blockLinks.js"),
     ...require("./maintenance.js"),
     ...require("./transfer.js"),
+    ...require("./query.js"),
+    ...require("./vacuum.js"),
+    ...require("./attach.js"),
 };
