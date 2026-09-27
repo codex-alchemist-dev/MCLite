@@ -4,6 +4,7 @@
   "description": "A free, open-source, fully atomic database designed for Minecraft Bedrock, using Bedrock's own dynamic-property storage as its backing store: A/B-slot atomic writes, checksummed records, a world-scoped mirror for redundancy, tables (record kinds), indexes, relations, aggregates, integrity scan/repair, and backup/restore/transfer - all dependency-free Node.",
   "private": true,
   "license": "MPL-2.0",
+  "main": "src/index.js",
   "scripts": {
     "test": "node test/mclite.test.js"
   },
