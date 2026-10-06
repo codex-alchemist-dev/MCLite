@@ -1,0 +1,8 @@
+{
+  "openrockVersion": 1,
+  "kind": "library",
+  "name": "@mclite/core",
+  "version": "0.1.0",
+  "entry": "src/index.js",
+  "provides": { "api": "src/index.js", "hookNamespaces": [] }
+}
