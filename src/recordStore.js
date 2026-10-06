@@ -239,4 +239,18 @@ function status(owner, world, kind, id) {
     };
 }
 
-module.exports = { registerRecordKind, readRecord, writeRecord, pin, unpin, rollback, status, getKindConfig };
+/**
+ * Permanently removes every physical trace of one record: both deployments,
+ * the current pointer, any pin, and the world mirror. Irreversible - callers
+ * that want a trash window keep a soft-delete flag in the record and only
+ * call this at purge time.
+ */
+function deleteRecord(owner, world, kind, id) {
+    const { keyPrefix } = kindOf(kind);
+    for (const key of [deploymentKey(keyPrefix, id, "0"), deploymentKey(keyPrefix, id, "1"), currentDeploymentKey(keyPrefix, id), pinnedDeploymentKey(keyPrefix, id)]) {
+        owner.setDynamicProperty(key, undefined);
+    }
+    world.setDynamicProperty(mirrorKey(keyPrefix, id), undefined);
+}
+
+module.exports = { registerRecordKind, readRecord, writeRecord, deleteRecord, pin, unpin, rollback, status, getKindConfig };

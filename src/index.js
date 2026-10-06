@@ -19,4 +19,5 @@ module.exports = {
     ...require("./attach.js"),
     ...require("./adapters/StorageAdapter.js"),
     ...require("./fulltext.js"),
+    ...require("./chunkedRecord.js"),
 };
